@@ -112,6 +112,7 @@ def train(agent, env, replay, ex_data, logger, args):
   policy = lambda *args: agent.policy(
       *args, mode='explore' if should_expl(step) else 'train')
   while step < args.steps:
+    print(step)
     driver(policy, steps=100)
     if should_save(step):
       checkpoint.save()
