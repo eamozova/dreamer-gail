@@ -329,7 +329,7 @@ class ImagActorCritic(nj.Module):
     # feat_policy = jax.lax.concatenate([stoch, traj['deter']], -1)
     # feat_policy_dist = tf.concat([imag_feat[:-1], actions], axis = -1)
     # policy_dist = jnp.concatenate([feat_policy, traj['action']], axis = -1)
-    policy_d = self.discriminator(traj)
+    policy_d, _ = self.discriminator(traj)
     # r(s,a) = ln(D(s,a))
     reward = jnp.log(policy_d.mean())
     # or r(s,a) = -ln(1-D(s,a))
@@ -342,8 +342,8 @@ class ImagActorCritic(nj.Module):
     
     ## expert_d, _ = self._discriminator(feat_expert_dist)
     ## policy_d, _ = self._discriminator(feat_policy_dist)
-    expert_d = self.discriminator(expert_dist)
-    policy_d = self.discriminator(policy_dist)
+    expert_d, _ = self.discriminator(expert_dist)
+    policy_d, _ = self.discriminator(policy_dist)
     
     ## expert_loss = tf.reduce_mean(expert_d.log_prob(tf.ones_like(expert_d.mean())))
     ## policy_loss = tf.reduce_mean(policy_d.log_prob(tf.zeros_like(policy_d.mean())))
@@ -355,20 +355,21 @@ class ImagActorCritic(nj.Module):
     # expert_dist
     # ['deter', 'logit', 'stoch']
     
-    # policy stoch: (16, 1024, 32, 32)
-    # expert stoch: (16, 64, 32, 32)
-    # policy deter: (16, 1024, 1024)
-    # expert deter: (16, 64, 1024)
-    # policy actions: (16, 1024, 17)
-    # expert actions: (16, 64, 17)
+    # policy stoch: (x, 1024, 32, 32)
+    # expert stoch: (x, 64, 32, 32)
+    # policy deter: (x, 1024, 1024)
+    # expert deter: (x, 64, 1024)
+    # policy actions: (x, 1024, 17)
+    # expert actions: (x, 64, 17)
     # ---> tile the 2nd expert dimension x batch_size
-    # 2 alphas: (16, 1024, 1, 1) and (16, 1024, 1), same random key
+    # 2 alphas: (x, 1024, 1, 1) and (x, 1024, 1), same random key
     # 3 tensors: stoch, deter and actions
     # ---> into a dictionary with corresponding keys, pass through the discriminator
     
     ## tf.concat([state["stoch"], state["deter"]], -1)
-    ## (16, 1024, 32, 32), (16, 1024, 1024)
-    stoch_pol = jnp.reshape(policy_dist["stoch"], (16, 1024, 1024))
+    ## (x, 1024, 32, 32), (x, 1024, 1024)
+    
+    stoch_pol = jnp.reshape(policy_dist["stoch"], (policy_dist["stoch"].shape[0], 1024, 1024))
     imag_feat = jnp.concatenate([stoch_pol, policy_dist["deter"]], -1)
     ## tf.concat([imag_feat[:-1], actions], -1)
     # (15, 1024, 2048), (16, 1024, 17)
@@ -396,18 +397,21 @@ class ImagActorCritic(nj.Module):
     disc_penalty_input = {'stoch': stoch, 'deter': deter, 'action': actions}
     
     ##      _, logits = self._discriminator(disc_penalty_input)
-    output = self.discriminator(disc_penalty_input)
-    # print(dir(tfp.distributions.Independent))
-    # ?????
-    logits = output.unnormalized_log_prob
+    _, logits = self.discriminator(disc_penalty_input)
     
+    disc_layers = self.discriminator.get_layers()
+    print(dir(nets.Linear))
+    variables = []
+    for key in disc_layers.keys():
+      print(disc_layers[key].get('kernel').shape)
+      variables.extend(disc_layers[key].get('kernel'))
     
     ##      discriminator_variables = tf.nest.flatten([self._discriminator.variables])
-    discriminator_variables = jax.tree_util.tree_flatten([self.discriminator.variables])
+    discriminator_variables = jnp.ravel(jnp.array(variables))
     ##      inner_discriminator_grads = penalty_tape.gradient(tf.reduce_mean(logits), discriminator_variables)
     inner_discriminator_grads = jnp.gradient(jnp.mean(logits), discriminator_variables)
     ##      inner_discriminator_norm = tf.linalg.global_norm(inner_discriminator_grads)
-    inner_discriminator_norm = jnp.linalg.norm(inner_discriminator_grads)
+    inner_discriminator_norm = jnp.linalg.norm(jnp.array(inner_discriminator_grads))
     ##      grad_penalty = (inner_discriminator_norm - 1)**2
     grad_penalty = (inner_discriminator_norm - 1)**2
           

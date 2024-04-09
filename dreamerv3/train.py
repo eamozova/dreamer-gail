@@ -50,7 +50,7 @@ def main(argv=None):
       env = make_envs(config)
       cleanup.append(env)
       agent = agt.Agent(env.obs_space, env.act_space, step, config)
-      expert_dataset = read_trajectories("dreamerv3/dataset",5)
+      expert_dataset = read_trajectories("dreamerv3/dataset",16)
       embodied.run.train(agent, env, replay, expert_dataset, logger, args)
 
     elif args.script == 'train_save':

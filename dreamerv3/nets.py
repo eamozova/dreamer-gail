@@ -443,7 +443,16 @@ class MLP(nj.Module):
       raise ValueError(self._shape)
 
   def _out(self, name, shape, x):
-    return self.get(f'dist_{name}', Dist, shape, **self._dist)(x)
+    if self.name == 'disc':
+      return self.get(f'dist_{name}', Dist, shape, **self._dist)(x), x
+    else:
+      return self.get(f'dist_{name}', Dist, shape, **self._dist)(x)
+  
+  def get_layers(self):
+    layers = {}
+    for i in range(self._layers):
+        layers[f"layer_{i}"] = self.get(f'h{i}', Linear, self._units, **self._dense)
+    return layers
 
 
 class Dist(nj.Module):
