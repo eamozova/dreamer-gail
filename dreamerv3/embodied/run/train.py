@@ -74,11 +74,8 @@ def train(agent, env, replay, ex_data, logger, args):
     for _ in range(should_train(step)):
       with timer.scope('dataset'):
         # ['action', 'id', 'image', 'is_first', 'is_last', 'is_terminal', 'reset', 'reward']
-        #print(ex_data.keys())
         batch1[0] = next(model_dataset)
-        #batch2[0] = next(ex_data)
         batch2[0] = ex_data
-      #outs, state[0], mets = agent.train(batch1[0], batch2[0], state[0])
       outs, state[0], mets = agent.train(batch1[0], batch2[0], state[0])
       metrics.add(mets, prefix='train')
       if 'priority' in outs:
@@ -88,7 +85,6 @@ def train(agent, env, replay, ex_data, logger, args):
       agent.sync()
     if should_log(step):
       agg = metrics.result()
-      # ???
       report = agent.report(batch1[0])
       report = {k: v for k, v in report.items() if 'train/' + k not in agg}
       logger.add(agg)
@@ -112,7 +108,6 @@ def train(agent, env, replay, ex_data, logger, args):
   policy = lambda *args: agent.policy(
       *args, mode='explore' if should_expl(step) else 'train')
   while step < args.steps:
-    print(step)
     driver(policy, steps=100)
     if should_save(step):
       checkpoint.save()
