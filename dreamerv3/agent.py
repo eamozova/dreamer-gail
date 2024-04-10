@@ -400,10 +400,8 @@ class ImagActorCritic(nj.Module):
     _, logits = self.discriminator(disc_penalty_input)
     
     disc_layers = self.discriminator.get_layers()
-    print(dir(nets.Linear))
     variables = []
     for key in disc_layers.keys():
-      print(disc_layers[key].get('kernel').shape)
       variables.extend(disc_layers[key].get('kernel'))
     
     ##      discriminator_variables = tf.nest.flatten([self._discriminator.variables])

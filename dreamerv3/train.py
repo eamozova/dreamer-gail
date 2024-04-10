@@ -3,6 +3,7 @@ import pathlib
 import sys
 import warnings
 import os
+import random
 import numpy as np
 from functools import partial as bind
 from collections import defaultdict
@@ -208,7 +209,9 @@ def wrap_env(env, config):
 def read_trajectories(dir_path, num_traj=-1):
   traj_npz = [x for x in os.listdir(dir_path) if x.endswith(".npz")]
   if 0 < num_traj < len(traj_npz):
-      traj_npz = traj_npz[:num_traj]
+      #traj_npz = traj_npz[:num_traj]
+      traj_npz = random.sample(traj_npz, num_traj)
+      print("Random trajectory sampling done.")
   rew = []
   act = []
   im = []
@@ -221,16 +224,17 @@ def read_trajectories(dir_path, num_traj=-1):
       traj = {key: data[key] for key in data.keys() & {'image', 'action', 'reward'}}
       traj['is_first'] = np.array([False] * len(traj['action']))
       traj['is_first'][0] = True
+      s_index = random.randint(0, len(traj['action']) - 64)
       temp_act = []
       for i in range(64):
         temp_act_row = np.zeros(17)
-        temp_act_row[traj['action'][i]] = 1
+        temp_act_row[traj['action'][s_index + i]] = 1
         temp_act.append(temp_act_row)
-      rew.append(traj['reward'][0:64])
+      rew.append(traj['reward'][s_index:s_index+64])
       act.append(temp_act)
-      im.append(traj['image'][0:64])
-      first.append(traj['is_first'][0:64])
-      #print(len(traj['is_first']))
+      im.append(traj['image'][s_index:s_index+64])
+      first.append(traj['is_first'][s_index:s_index+64])
+      print("Random trajectory part chosen.")
   traj_dict = {}
   traj_dict.update({'reward':np.array(rew), 'action':np.array(act), 'image':np.array(im), 'is_first':np.array(first)})
   return traj_dict

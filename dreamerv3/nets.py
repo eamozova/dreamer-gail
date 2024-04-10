@@ -55,9 +55,6 @@ class RSSM(nj.Module):
     if state is None:
       state = self.initial(action.shape[0])
     step = lambda prev, inputs: self.obs_step(prev[0], *inputs)
-    #print(action.shape)
-    #print(embed.shape)
-    #print(is_first.shape)
     inputs = swap(action), swap(embed), swap(is_first)
     start = state, state
     post, prior = jaxutils.scan(step, inputs, start, self._unroll)
@@ -115,8 +112,6 @@ class RSSM(nj.Module):
     if len(prev_action.shape) > len(prev_stoch.shape):  # 2D actions.
       shape = prev_action.shape[:-2] + (np.prod(prev_action.shape[-2:]),)
       prev_action = prev_action.reshape(shape)
-    #print(prev_action.shape)
-    #jax.debug.print("{x}", x=prev_action)
     x = jnp.concatenate([prev_stoch, prev_action], -1)
     x = self.get('img_in', Linear, **self._kw)(x)
     x, deter = self._gru(x, prev_state['deter'])
@@ -318,7 +313,6 @@ class ImageEncoderResnet(nj.Module):
     stages = int(np.log2(x.shape[-2]) - np.log2(self._minres))
     depth = self._depth
     x = jaxutils.cast_to_compute(x) - 0.5
-    # print(x.shape)
     for i in range(stages):
       kw = {**self._kw, 'preact': False}
       if self._resize == 'stride':
@@ -343,12 +337,10 @@ class ImageEncoderResnet(nj.Module):
         x = self.get(f's{i}b{j}conv1', Conv2D, depth, 3, **kw)(x)
         x = self.get(f's{i}b{j}conv2', Conv2D, depth, 3, **kw)(x)
         x += skip
-        # print(x.shape)
       depth *= 2
     if self._blocks:
       x = get_act(self._kw['act'])(x)
     x = x.reshape((x.shape[0], -1))
-    # print(x.shape)
     return x
 
 
@@ -375,7 +367,6 @@ class ImageDecoderResnet(nj.Module):
         x = self.get(f's{i}b{j}conv1', Conv2D, depth, 3, **kw)(x)
         x = self.get(f's{i}b{j}conv2', Conv2D, depth, 3, **kw)(x)
         x += skip
-        # print(x.shape)
       depth //= 2
       kw = {**self._kw, 'preact': False}
       if i == stages - 1:
@@ -397,7 +388,6 @@ class ImageDecoderResnet(nj.Module):
       padw = (x.shape[2] - self._shape[1]) / 2
       x = x[:, int(np.ceil(padh)): -int(padh), :]
       x = x[:, :, int(np.ceil(padw)): -int(padw)]
-    # print(x.shape)
     assert x.shape[-3:] == self._shape, (x.shape, self._shape)
     if self._sigmoid:
       x = jax.nn.sigmoid(x)
