@@ -3,6 +3,7 @@ import re
 import embodied
 import numpy as np
 import jax.numpy as jnp
+from train import read_trajectories, read_16_best
 
 def train(agent, env, replay, ex_data, logger, args):
 
@@ -14,6 +15,7 @@ def train(agent, env, replay, ex_data, logger, args):
   should_log = embodied.when.Clock(args.log_every)
   should_save = embodied.when.Clock(args.save_every)
   should_sync = embodied.when.Every(args.sync_every)
+  should_change = embodied.when.Clock(args.random_every)
   step = logger.step
   updates = embodied.Counter()
   metrics = embodied.Metrics()
@@ -73,7 +75,6 @@ def train(agent, env, replay, ex_data, logger, args):
   def train_step(tran, worker):
     for _ in range(should_train(step)):
       with timer.scope('dataset'):
-        # ['action', 'id', 'image', 'is_first', 'is_last', 'is_terminal', 'reset', 'reward']
         batch1[0] = next(model_dataset)
         batch2[0] = ex_data
       outs, state[0], mets = agent.train(batch1[0], batch2[0], state[0])
@@ -111,4 +112,7 @@ def train(agent, env, replay, ex_data, logger, args):
     driver(policy, steps=100)
     if should_save(step):
       checkpoint.save()
+    if should_change(step):
+      #ex_data = read_trajectories("dreamerv3/dataset",16)
+      ex_data = read_16_best("dreamerv3/dataset-16-best")
   logger.write()
