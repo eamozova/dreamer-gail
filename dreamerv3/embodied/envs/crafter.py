@@ -8,6 +8,7 @@ class Crafter(embodied.Env):
     assert task in ('reward', 'noreward')
     import crafter
     self._env = crafter.Env(size=size, reward=(task == 'reward'), seed=seed)
+    outdir = "recording"
     if outdir:
       outdir = embodied.Path(outdir)
       self._env = crafter.Recorder(
