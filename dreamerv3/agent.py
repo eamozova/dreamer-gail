@@ -81,9 +81,6 @@ class Agent(nj.Module):
     self.config.jax.jit and print('Tracing train function.')
     metrics = {}
     data = self.preprocess(data)
-    # preprocess expert?
-    #if ex_data is not None:
-    #  ex_data = self.preprocess(ex_data)
     state, wm_outs, mets = self.wm.train(data, state)
     metrics.update(mets)
     context = {**data, **wm_outs['post']}
@@ -266,16 +263,13 @@ class ImagActorCritic(nj.Module):
     self.actor = nets.MLP(
         name='actor', dims='deter', shape=act_space.shape, **config.actor,
         dist=config.actor_dist_disc if disc else config.actor_dist_cont)
-    # DISCRIMINATOR
-    self.discriminator = nets.MLP((), **config.discriminator, name='disc')
-    # 
     self.retnorms = {
         k: jaxutils.Moments(**config.retnorm, name=f'retnorm_{k}')
         for k in critics}
     self.opt = jaxutils.Optimizer(name='actor_opt', **config.actor_opt)
-    # DISCRIMINATOR OPTIMIZER
+    ### DISCRIMINATOR ###
+    self.discriminator = nets.MLP((), **config.discriminator, name='disc')
     self.disc_opt = jaxutils.Optimizer(name='disc_opt', **config.disc_opt)
-    #
 
   def initial(self, batch_size):
     return {}
@@ -293,55 +287,37 @@ class ImagActorCritic(nj.Module):
     def disc_loss(start):
       policy = lambda s: self.actor(sg(s)).sample(seed=nj.rng())
       
-      ## imag_feat, actions = self._imagine_ahead(post)
+      ### imagined trajectory (observations + actions, cont and weight); length = imag_horizon + 1 = 16
       traj = imagine(policy, start, self.config.imag_horizon)
       
-      ## feat_policy_dist = tf.concat([imag_feat[:-1], actions], axis = -1)
-      # feat_policy = jnp.concatenate([traj['stoch'], traj['deter']], -1)
-      # policy_dist = jnp.concatenate([feat_policy[:-1], traj['action']], axis = -1)
-      
-      ## post_expert, prior_expert = self._dynamics.observe(embed_expert, expert_data['action'])
-      
+      ### observed expert data (observations sequence)
       post_expert, prior_expert = observe(expert[0], expert[1]['action'], expert[1]['is_first'])
-      
-      ## feat_expert = self._dynamics.get_feat(post_expert)
-      #feat_expert = jnp.concatenate([post_expert['stoch'], post_expert['deter']], -1)
-      ## feat_expert_dist = tf.concat([feat_expert[:, :-1], expert_data['action'][:, 1:]], axis = -1)
-      #expert_dist = jnp.concatenate([feat_expert[:, :-1], expert[1]['action'][:, 1:]], axis = -1)
       
       disc_loss, disc_metrics = self.disc_loss(post_expert, expert[1]['action'], traj)
 
       return disc_loss, (traj, disc_metrics)
     mets, (traj, metrics) = self.opt(self.actor, loss, start, has_aux=True)
     metrics.update(mets)
-    if expert is not None:
-      disc_mets, (disc_traj, disc_metrics) = self.disc_opt(self.discriminator, disc_loss, start, has_aux=True)
-      metrics.update(disc_mets)
+    disc_mets, (disc_traj, disc_metrics) = self.disc_opt(self.discriminator, disc_loss, start, has_aux=True)
+    metrics.update(disc_mets)
     for key, critic in self.critics.items():
       mets = critic.train(traj, self.actor)
       metrics.update({f'{key}_critic_{k}': v for k, v in mets.items()})
     return traj, metrics
   
   def disc_reward(self, traj):
-    ## imag_feat, actions = self._imagine_ahead(post)
-    ## get_feat() => concatenation of 'stoch' and 'deter'
-    # stoch = jax.lax.reshape(traj['stoch'], (16,1024,1024))
-    # feat_policy = jax.lax.concatenate([stoch, traj['deter']], -1)
-    # feat_policy_dist = tf.concat([imag_feat[:-1], actions], axis = -1)
-    # policy_dist = jnp.concatenate([feat_policy, traj['action']], axis = -1)
     policy_d, _ = self.discriminator(traj)
     # r(s,a) = ln(D(s,a))
-    reward = jnp.log(policy_d.mean())
+    #reward = jnp.log(policy_d.mean())
     # or r(s,a) = -ln(1-D(s,a))
-    #reward = -jnp.log(1-policy_d.mean())
+    reward = -jnp.log(1-policy_d.mean())
     return reward
   
   # discriminator loss
   def disc_loss(self, expert_dist, expert_actions, policy_dist):
     metrics = {}
     
-    ## expert_d, _ = self._discriminator(feat_expert_dist)
-    ## policy_d, _ = self._discriminator(feat_policy_dist)
+    ### discriminator output (real/false)
     expert_d, _ = self.discriminator(expert_dist)
     policy_d, _ = self.discriminator(policy_dist)
     
@@ -350,53 +326,27 @@ class ImagActorCritic(nj.Module):
     expert_loss = jnp.mean(expert_d.log_prob(jnp.ones_like(expert_d.mean())))
     policy_loss = jnp.mean(policy_d.log_prob(jnp.zeros_like(policy_d.mean())))
     
-    # policy_dist
-    # ['action', 'deter', 'logit', 'stoch', 'cont', 'weight']
-    # expert_dist
-    # ['deter', 'logit', 'stoch']
-    
-    # policy stoch: (x, 1024, 32, 32)
-    # expert stoch: (x, 64, 32, 32)
-    # policy deter: (x, 1024, 1024)
-    # expert deter: (x, 64, 1024)
-    # policy actions: (x, 1024, 17)
-    # expert actions: (x, 64, 17)
-    # ---> tile the 2nd expert dimension x batch_size
-    # 2 alphas: (x, 1024, 1, 1) and (x, 1024, 1), same random key
-    # 3 tensors: stoch, deter and actions
-    # ---> into a dictionary with corresponding keys, pass through the discriminator
-    
-    ## tf.concat([state["stoch"], state["deter"]], -1)
-    ## (x, 1024, 32, 32), (x, 1024, 1024)
-    
-    stoch_pol = jnp.reshape(policy_dist["stoch"], (policy_dist["stoch"].shape[0], 1024, 1024))
-    imag_feat = jnp.concatenate([stoch_pol, policy_dist["deter"]], -1)
-    ## tf.concat([imag_feat[:-1], actions], -1)
-    # (15, 1024, 2048), (16, 1024, 17)
+    policy_stoch = jnp.reshape(policy_dist["stoch"], (policy_dist["stoch"].shape[0], 1024, 1024))
+    imag_feat = jnp.concatenate([policy_stoch, policy_dist["deter"]], -1)
     pol_dist = jnp.concatenate([imag_feat, policy_dist['action']], -1)
+    
     ## alpha = tf.expand_dims(tf.random.uniform(feat_policy_dist.shape[:2]), -1)
     key = jax.random.key(0)
     key, subkey = jax.random.split(key)
     alpha_1 = jnp.expand_dims(jax.random.uniform(subkey, pol_dist.shape[:2]), -1)
     alpha_2 = jnp.expand_dims(alpha_1, -1)
     
-    # ---> tile the 2nd expert dimension x batch_size
-    stoch_ex = jnp.tile(expert_dist["stoch"], [1, self.config.batch_size, 1, 1])
-    deter_ex = jnp.tile(expert_dist["deter"], [1, self.config.batch_size, 1])
-    actions_ex = jnp.tile(expert_actions, [1, self.config.batch_size, 1])
+    ### tile the 2nd expert dimension x batch_size
+    expert_stoch = jnp.tile(expert_dist["stoch"], [1, self.config.batch_size, 1, 1])
+    expert_deter = jnp.tile(expert_dist["deter"], [1, self.config.batch_size, 1])
+    expert_act = jnp.tile(expert_actions, [1, self.config.batch_size, 1])
+
+    stoch = alpha_2 * policy_dist["stoch"] + (1.0 - alpha_2) * expert_stoch
+    deter = alpha_1 * policy_dist["deter"] + (1.0 - alpha_1) * expert_deter
+    actions = alpha_1 * policy_dist["action"] + (1.0 - alpha_1) * expert_act
     
-    # 3 tensors: stoch, deter and actions
-    stoch = alpha_2 * policy_dist["stoch"] + (1.0 - alpha_2) * stoch_ex
-    deter = alpha_1 * policy_dist["deter"] + (1.0 - alpha_1) * deter_ex
-    actions = alpha_1 * policy_dist["action"] + (1.0 - alpha_1) * actions_ex
-    
-    ##  disc_penalty_input = alpha * policy_dist + \
-    ##                      (1.0 - alpha) * tf.tile(tf.expand_dims(flatten(feat_expert_dist), 0), [self._c.horizon, 1, 1])
-    #disc_penalty_input = alpha * pol_dist + (1.0 - alpha) * \
-    #  jnp.tile(jnp.expand_dims(jnp.reshape(ex_dist, [-1] + list(ex_dist.shape[2:])), 0), [16, 1, 1])
     disc_penalty_input = {'stoch': stoch, 'deter': deter, 'action': actions}
     
-    ##      _, logits = self._discriminator(disc_penalty_input)
     _, logits = self.discriminator(disc_penalty_input)
     
     disc_layers = self.discriminator.get_layers()
@@ -404,17 +354,12 @@ class ImagActorCritic(nj.Module):
     for key in disc_layers.keys():
       variables.extend(disc_layers[key].get('kernel'))
     
-    ##      discriminator_variables = tf.nest.flatten([self._discriminator.variables])
     discriminator_variables = jnp.ravel(jnp.array(variables))
-    ##      inner_discriminator_grads = penalty_tape.gradient(tf.reduce_mean(logits), discriminator_variables)
     inner_discriminator_grads = jnp.gradient(jnp.mean(logits), discriminator_variables)
-    ##      inner_discriminator_norm = tf.linalg.global_norm(inner_discriminator_grads)
     inner_discriminator_norm = jnp.linalg.norm(jnp.array(inner_discriminator_grads))
-    ##      grad_penalty = (inner_discriminator_norm - 1)**2
     grad_penalty = (inner_discriminator_norm - 1)**2
           
     ## discriminator_loss = -(expert_loss + policy_loss) + self._c.alpha * grad_penalty
-    ## discriminator_loss /= float(self._strategy.num_replicas_in_sync)
     discriminator_loss = -(expert_loss + policy_loss) + 1.0 * grad_penalty
     
     metrics.update(jaxutils.tensorstats(discriminator_loss, 'discriminator_loss'))
@@ -426,32 +371,22 @@ class ImagActorCritic(nj.Module):
     advs = []
     total = sum(self.scales[k] for k in self.critics)
     for key, critic in self.critics.items():
-      # reward, return, value under current policy
       rew, ret, base = critic.score(traj, self.actor)
       offset, invscale = self.retnorms[key](ret)
       normed_ret = (ret - offset) / invscale
       normed_base = (base - offset) / invscale
-      # divide returns by their scale
       advs.append((normed_ret - normed_base) * self.scales[key] / total)
       metrics.update(jaxutils.tensorstats(rew, f'{key}_reward'))
       metrics.update(jaxutils.tensorstats(ret, f'{key}_return_raw'))
       metrics.update(jaxutils.tensorstats(normed_ret, f'{key}_return_normed'))
       metrics[f'{key}_return_rate'] = (jnp.abs(ret) >= 0.5).mean()
-    # sum of returns over time?
     adv = jnp.stack(advs).sum(0)
     policy = self.actor(sg(traj))
     logpi = policy.log_prob(sg(traj['action']))[:-1]
-    # the way to estimate the gradient
-    # stochastic backpropagation for continuous actions
-    # reinforce for discrete actions
-    # [self.grad] tells which estimation to use
     loss = {'backprop': -adv, 'reinforce': -logpi * sg(adv)}[self.grad]
     ent = policy.entropy()[:-1]
-    # loss minus scaled policy entropy (0.003)
     loss -= self.config.actent * ent
-    #
     loss *= sg(traj['weight'])[:-1]
-    # loss * 1.0 (actor loss scale)
     loss *= self.config.loss_scales.actor
     metrics.update(self._metrics(traj, policy, logpi, ent, adv))
     return loss.mean(), metrics

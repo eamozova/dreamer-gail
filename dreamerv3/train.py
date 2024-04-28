@@ -51,7 +51,8 @@ def main(argv=None):
       env = make_envs(config)
       cleanup.append(env)
       agent = agt.Agent(env.obs_space, env.act_space, step, config)
-      expert_dataset = read_trajectories("dreamerv3/dataset",16)
+      #expert_dataset = read_trajectories("dreamerv3/dataset",16)
+      expert_dataset = read_16_best("dreamerv3/dataset-16-best")
       embodied.run.train(agent, env, replay, expert_dataset, logger, args)
 
     elif args.script == 'train_save':
@@ -113,7 +114,7 @@ def main(argv=None):
 def make_logger(parsed, logdir, step, config):
   multiplier = config.env.get(config.task.split('_')[0], {}).get('repeat', 1)
   logger = embodied.Logger(step, [
-      embodied.logger.TerminalOutput(config.filter),
+      #embodied.logger.TerminalOutput(config.filter),
       embodied.logger.JSONLOutput(logdir, 'metrics.jsonl'),
       embodied.logger.JSONLOutput(logdir, 'scores.jsonl', 'episode/score'),
       embodied.logger.TensorBoardOutput(logdir),
@@ -234,9 +235,35 @@ def read_trajectories(dir_path, num_traj=-1):
       act.append(temp_act)
       im.append(traj['image'][s_index:s_index+64])
       first.append(traj['is_first'][s_index:s_index+64])
-      print("Random trajectory part chosen.")
   traj_dict = {}
   traj_dict.update({'reward':np.array(rew), 'action':np.array(act), 'image':np.array(im), 'is_first':np.array(first)})
+  return traj_dict
+
+def read_16_best(dir_path):
+  traj_npz = [x for x in os.listdir(dir_path) if x.endswith(".npz")]
+  rew = []
+  act = []
+  im = []
+  first = []
+  for el in traj_npz:
+      data = dict(np.load(os.path.join(dir_path, el), allow_pickle=True))
+      traj = {key: data[key] for key in data.keys() & {'image', 'action', 'reward'}}
+      traj['is_first'] = np.array([False] * len(traj['action']))
+      traj['is_first'][0] = True
+      #s_index = random.randint(0, len(traj['action']) - 64)
+      s_index = random.randint(int(len(traj['action'])/5), len(traj['action']) - 64)
+      temp_act = []
+      for i in range(64):
+        temp_act_row = np.zeros(17)
+        temp_act_row[traj['action'][s_index + i]] = 1
+        temp_act.append(temp_act_row)
+      rew.append(traj['reward'][s_index:s_index+64])
+      act.append(temp_act)
+      im.append(traj['image'][s_index:s_index+64])
+      first.append(traj['is_first'][s_index:s_index+64])
+  traj_dict = {}
+  traj_dict.update({'reward':np.array(rew), 'action':np.array(act), 'image':np.array(im), 'is_first':np.array(first)})
+  print("Randomized subsets.")
   return traj_dict
 
 if __name__ == '__main__':

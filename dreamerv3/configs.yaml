@@ -23,11 +23,14 @@ defaults:
 
   run:
     script: train
-    steps: 1e10
+    #steps: 1e10
+    steps: 50000
     expl_until: 0
     log_every: 300
     save_every: 900
-    eval_every: 1e6
+    random_every: 300
+    #eval_every: 1e6
+    eval_every: 25000
     eval_initial: True
     eval_eps: 1
     eval_samples: 1
@@ -448,6 +451,7 @@ debug:
     eval_every: 1000
     log_every: 5
     save_every: 10
+    random_every: 10
     train_ratio: 32
     actor_batch: 2
   batch_size: 8
