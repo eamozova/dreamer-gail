@@ -3,7 +3,7 @@ import re
 import embodied
 import numpy as np
 import jax.numpy as jnp
-from train import read_trajectories, read_16_best
+from train import read_trajectories, read_16_best, read_one_best
 
 def train(agent, env, replay, ex_data, logger, args):
 
@@ -67,17 +67,16 @@ def train(agent, env, replay, ex_data, logger, args):
     driver(random_agent.policy, steps=100)
   logger.add(metrics.result())
   logger.write()
-
+  
   model_dataset = agent.dataset(replay.dataset)
   state = [None]  # To be writable from train step function below.
   batch1 = [None]
-  batch2 = [None]
   def train_step(tran, worker):
     for _ in range(should_train(step)):
       with timer.scope('dataset'):
         batch1[0] = next(model_dataset)
-        batch2[0] = ex_data
-      outs, state[0], mets = agent.train(batch1[0], batch2[0], state[0])
+      print(len(batch1[0]['is_first']))
+      outs, state[0], mets = agent.train(batch1[0], ex_data, state[0])
       metrics.add(mets, prefix='train')
       if 'priority' in outs:
         replay.prioritize(outs['key'], outs['priority'])
@@ -114,5 +113,5 @@ def train(agent, env, replay, ex_data, logger, args):
       checkpoint.save()
     if should_change(step):
       #ex_data = read_trajectories("dreamerv3/dataset",16)
-      ex_data = read_16_best("dreamerv3/dataset-16-best")
+      ex_data = read_16_best("dreamerv3/snake-circle")
   logger.write()
