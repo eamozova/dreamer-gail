@@ -52,7 +52,7 @@ def main(argv=None):
       cleanup.append(env)
       agent = agt.Agent(env.obs_space, env.act_space, step, config)
       #expert_dataset = read_trajectories("dreamerv3/dataset",16)
-      expert_dataset = read_16_best("dreamerv3/dataset-16-best")
+      expert_dataset = read_16_best("dreamerv3/snake-circle")
       embodied.run.train(agent, env, replay, expert_dataset, logger, args)
 
     elif args.script == 'train_save':
@@ -175,6 +175,7 @@ def make_env(config, **overrides):
       'minecraft': 'embodied.envs.minecraft:Minecraft',
       'loconav': 'embodied.envs.loconav:LocoNav',
       'pinpad': 'embodied.envs.pinpad:PinPad',
+      'snake' : 'embodied.envs.snake:Snake',
   }[suite]
   if isinstance(ctor, str):
     module, cls = ctor.split(':')
@@ -249,9 +250,8 @@ def read_16_best(dir_path):
       data = dict(np.load(os.path.join(dir_path, el), allow_pickle=True))
       traj = {key: data[key] for key in data.keys() & {'image', 'action', 'reward'}}
       traj['is_first'] = np.array([False] * len(traj['action']))
-      traj['is_first'][0] = True
-      #s_index = random.randint(0, len(traj['action']) - 64)
       s_index = random.randint(int(len(traj['action'])/5), len(traj['action']) - 64)
+      traj['is_first'][s_index] = True
       temp_act = []
       for i in range(64):
         temp_act_row = np.zeros(17)
@@ -261,6 +261,34 @@ def read_16_best(dir_path):
       act.append(temp_act)
       im.append(traj['image'][s_index:s_index+64])
       first.append(traj['is_first'][s_index:s_index+64])
+  traj_dict = {}
+  traj_dict.update({'reward':np.array(rew), 'action':np.array(act), 'image':np.array(im), 'is_first':np.array(first)})
+  print("Randomized subsets.")
+  return traj_dict
+
+def read_one_best(dir_path):
+  traj_npz = [x for x in os.listdir(dir_path) if x.endswith(".npz")]
+  traj_file = traj_npz[random.randint(0,len(traj_npz)-1)]
+  rew = []
+  act = []
+  im = []
+  first = []
+  data = dict(np.load(os.path.join(dir_path, traj_file), allow_pickle=True))
+  traj = {key: data[key] for key in data.keys() & {'image', 'action', 'reward'}}
+  traj['is_first'] = np.array([False] * len(traj['action']))
+  traj['is_first'][0] = True
+  s_index = random.randint(0, len(traj['action']) - 64*16)
+  for i in range(16):
+    index = s_index+i*64
+    temp_act = []
+    for j in range(64):
+      temp_act_row = np.zeros(17)
+      temp_act_row[traj['action'][index + j]] = 1
+      temp_act.append(temp_act_row)
+    rew.append(traj['reward'][index:index+64])
+    act.append(temp_act)
+    im.append(traj['image'][index:index+64])
+    first.append(traj['is_first'][index:index+64])
   traj_dict = {}
   traj_dict.update({'reward':np.array(rew), 'action':np.array(act), 'image':np.array(im), 'is_first':np.array(first)})
   print("Randomized subsets.")

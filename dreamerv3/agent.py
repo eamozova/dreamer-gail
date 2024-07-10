@@ -17,6 +17,7 @@ from . import jaxagent
 from . import jaxutils
 from . import nets
 from . import ninjax as nj
+import tensorflow
 
 from tensorflow_probability.substrates import jax as tfp
 tf = tfp.tf2jax
@@ -88,15 +89,11 @@ class Agent(nj.Module):
     # embedded expert added
     if ex_data is not None:
       _, mets = self.task_behavior.train(self.wm.imagine, start, context, [self.wm.encoder(ex_data), ex_data], self.wm.rssm.observe)
-    else:
-      _, mets = self.task_behavior.train(self.wm.imagine, start, context, None, self.wm.rssm.observe)
     metrics.update(mets)
     if self.config.expl_behavior != 'None':
     # embedded expert added
       if ex_data is not None:
         _, mets = self.expl_behavior.train(self.wm.imagine, start, context, [self.wm.encoder(ex_data), ex_data], self.wm.rssm.observe)
-      else:
-        _, mets = self.expl_behavior.train(self.wm.imagine, start, context, None, self.wm.rssm.observe)
       metrics.update({'expl_' + key: value for key, value in mets.items()})
     outs = {}
     return outs, state, metrics
@@ -287,7 +284,7 @@ class ImagActorCritic(nj.Module):
     def disc_loss(start):
       policy = lambda s: self.actor(sg(s)).sample(seed=nj.rng())
       
-      ### imagined trajectory (observations + actions, cont and weight); length = imag_horizon + 1 = 16
+      ### imagined trajectory (observations + actions, cont and weight); length = 16
       traj = imagine(policy, start, self.config.imag_horizon)
       
       ### observed expert data (observations sequence)
@@ -310,7 +307,9 @@ class ImagActorCritic(nj.Module):
     # r(s,a) = ln(D(s,a))
     #reward = jnp.log(policy_d.mean())
     # or r(s,a) = -ln(1-D(s,a))
-    reward = -jnp.log(1-policy_d.mean())
+    #reward = -jnp.log(1-policy_d.mean())
+    # AIRL
+    reward = jnp.log(policy_d.mean()) - jnp.log(1-policy_d.mean())
     return reward
   
   # discriminator loss
@@ -331,9 +330,10 @@ class ImagActorCritic(nj.Module):
     pol_dist = jnp.concatenate([imag_feat, policy_dist['action']], -1)
     
     ## alpha = tf.expand_dims(tf.random.uniform(feat_policy_dist.shape[:2]), -1)
-    key = jax.random.key(0)
-    key, subkey = jax.random.split(key)
-    alpha_1 = jnp.expand_dims(jax.random.uniform(subkey, pol_dist.shape[:2]), -1)
+    #key = jax.random.key(0)
+    #key, subkey = jax.random.split(key)
+    arr = jnp.array(tensorflow.random.uniform(pol_dist.shape[:2]))
+    alpha_1 = jnp.expand_dims(arr, -1)
     alpha_2 = jnp.expand_dims(alpha_1, -1)
     
     ### tile the 2nd expert dimension x batch_size
@@ -363,6 +363,8 @@ class ImagActorCritic(nj.Module):
     discriminator_loss = -(expert_loss + policy_loss) + 1.0 * grad_penalty
     
     metrics.update(jaxutils.tensorstats(discriminator_loss, 'discriminator_loss'))
+    #metrics.update(jaxutils.tensorstats(expert_d, 'discriminator_expert_class'))
+    #metrics.update(jaxutils.tensorstats(policy_d, 'discriminator_policy_class'))
 
     return discriminator_loss.mean(), metrics
 

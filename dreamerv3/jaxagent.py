@@ -229,7 +229,7 @@ class JAXAgent(embodied.Agent):
     data = self._dummy_batch({**obs_space, **act_space}, dims)
     data = self._convert_inps(data, self.train_devices)
     #ex_data = train.read_trajectories("dreamerv3/dataset",16)
-    ex_data = train.read_16_best("dreamerv3/dataset-16-best")
+    ex_data = train.read_16_best("dreamerv3/snake-circle")
     state, varibs = self._init_train(varibs, rng, data['is_first'])
     varibs = self._train(varibs, rng, data, ex_data, state, init_only=True)
     # obs = self._dummy_batch(obs_space, (1,))

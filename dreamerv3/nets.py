@@ -55,6 +55,7 @@ class RSSM(nj.Module):
     if state is None:
       state = self.initial(action.shape[0])
     step = lambda prev, inputs: self.obs_step(prev[0], *inputs)
+    #jax.debug.print("Is_first: {x}", x=is_first)
     inputs = swap(action), swap(embed), swap(is_first)
     start = state, state
     post, prior = jaxutils.scan(step, inputs, start, self._unroll)

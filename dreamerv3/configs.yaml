@@ -23,14 +23,13 @@ defaults:
 
   run:
     script: train
-    #steps: 1e10
-    steps: 50000
+    steps: 1000000
     expl_until: 0
-    log_every: 300
-    save_every: 900
-    random_every: 300
+    log_every: 500
+    save_every: 1000
+    random_every: 500
     #eval_every: 1e6
-    eval_every: 25000
+    eval_every: 100000
     eval_initial: True
     eval_eps: 1
     eval_samples: 1
@@ -366,6 +365,12 @@ crafter:
   run.train_ratio: 512
   encoder: { mlp_keys: "$^", cnn_keys: "image" }
   decoder: { mlp_keys: "$^", cnn_keys: "image" }
+
+snake:
+  task: snake_reward
+  run.train_ratio: 512
+  encoder: {mlp_keys: '$^', cnn_keys: 'image'}
+  decoder: {mlp_keys: '$^', cnn_keys: 'image'}
 
 dmc_vision:
   task: dmc_walker_walk
