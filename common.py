@@ -88,7 +88,7 @@ def read_trajectories(dir_path):
     print(rates)
 
 if __name__ == "__main__":
-  runs = load_runs("recording/stats.jsonl")
+  runs = load_runs("bc scores/wood/stats2.jsonl")
   rates, tasks = compute_success_rates(runs)
   print("Tasks:")
   print(tasks)
