@@ -4,6 +4,9 @@ class Agent:
 
   def __init__(self, obs_space, act_space, step, config):
     pass
+  
+  def re_init(self):
+    pass
 
   def dataset(self, generator_fn):
     raise NotImplementedError(
