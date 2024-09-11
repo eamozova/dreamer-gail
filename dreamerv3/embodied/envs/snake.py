@@ -8,7 +8,7 @@ class Snake(embodied.Env):
     assert task in ('reward', 'noreward')
     import gym_snake_game
     from gym_snake_game import environment
-    self._gymenv = environment.SnakeEnv(width=64,height=64,block_size=40)
+    self._gymenv = environment.SnakeEnv(width=32,height=32,block_size=20)
     self._env = from_gym.FromGym(self._gymenv)
 
   @property
@@ -22,4 +22,5 @@ class Snake(embodied.Env):
   def step(self, action):
     obs = self._env.step(action)
     obs['is_terminal'] = False
+    #print("Env reward:" + str(obs['reward']))
     return obs
