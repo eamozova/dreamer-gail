@@ -3,6 +3,7 @@ defaults:
   method: name
   task: dummy_disc
   logdir: /dev/null
+  demos: /dev/null
   replay: uniform
   replay_size: 1e6
   replay_online: False

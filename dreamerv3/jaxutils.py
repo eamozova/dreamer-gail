@@ -31,7 +31,7 @@ def tensorstats(tensor, prefix=None):
   metrics = {
       'mean': tensor.mean(),
       'std': tensor.std(),
-      'mag': jnp.abs(tensor).max(),
+      #'mag': jnp.abs(tensor).max(),
       'min': tensor.min(),
       'max': tensor.max(),
       'dist': subsample(tensor),

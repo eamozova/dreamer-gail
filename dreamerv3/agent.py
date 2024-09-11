@@ -42,6 +42,16 @@ class Agent(nj.Module):
     else:
       self.expl_behavior = getattr(behaviors, config.expl_behavior)(
           self.wm, self.act_space, self.config, name='expl_behavior')
+      
+  def re_init(self):
+    self.task_behavior = getattr(behaviors, self.config.task_behavior)(
+        self.wm, self.act_space, self.config, name='task_behavior')
+    if self.config.expl_behavior == 'None':
+      self.expl_behavior = self.task_behavior
+    else:
+      self.expl_behavior = getattr(behaviors, self.config.expl_behavior)(
+          self.wm, self.act_space, self.config, name='expl_behavior')
+    self.wm.re_init()
 
   def policy_initial(self, batch_size):
     return (
@@ -144,6 +154,12 @@ class WorldModel(nj.Module):
     scales.update({k: image for k in self.heads['decoder'].cnn_shapes})
     scales.update({k: vector for k in self.heads['decoder'].mlp_shapes})
     self.scales = scales
+    
+  def re_init(self):
+    self.rssm = nets.RSSM(**self.config.rssm, name='rssm')
+    self.head['reward'] = nets.MLP((), **self.config.reward_head, name='rew')
+    self.head['cont'] = nets.MLP((), **self.config.cont_head, name='cont')
+    self.opt = jaxutils.Optimizer(name='model_opt', **self.config.model_opt)
 
   def initial(self, batch_size):
     prev_latent = self.rssm.initial(batch_size)
@@ -154,7 +170,7 @@ class WorldModel(nj.Module):
     modules = [self.encoder, self.rssm, *self.heads.values()]
     mets, (state, outs, metrics) = self.opt(
         modules, self.loss, data, state, has_aux=True)
-    metrics.update(mets)
+    #metrics.update(mets)
     return state, outs, metrics
 
   def loss(self, data, state):
@@ -294,25 +310,26 @@ class ImagActorCritic(nj.Module):
 
       return disc_loss, (traj, disc_metrics)
     mets, (traj, metrics) = self.opt(self.actor, loss, start, has_aux=True)
-    metrics.update(mets)
+    #metrics.update(mets)
     disc_mets, (disc_traj, disc_metrics) = self.disc_opt(self.discriminator, disc_loss, start, has_aux=True)
-    metrics.update(disc_mets)
     for key, critic in self.critics.items():
       mets = critic.train(traj, self.actor)
       metrics.update({f'{key}_critic_{k}': v for k, v in mets.items()})
     return traj, metrics
   
   def disc_reward(self, traj):
-    policy_d, _ = self.discriminator(traj)
+    policy_d, logits = self.discriminator(traj)
     # r(s,a) = ln(D(s,a))
     #reward = jnp.log(policy_d.mean())
     # or r(s,a) = -ln(1-D(s,a))
     #reward = -jnp.log(1-policy_d.mean())
     # AIRL
     reward = jnp.log(policy_d.mean()) - jnp.log(1-policy_d.mean())
+    # WGAN
+    #reward = jnp.mean(logits)
     return reward
   
-  # discriminator loss
+  # GAN loss
   def disc_loss(self, expert_dist, expert_actions, policy_dist):
     metrics = {}
     
@@ -361,10 +378,56 @@ class ImagActorCritic(nj.Module):
           
     ## discriminator_loss = -(expert_loss + policy_loss) + self._c.alpha * grad_penalty
     discriminator_loss = -(expert_loss + policy_loss) + 1.0 * grad_penalty
+
+    return discriminator_loss.mean(), metrics
+  
+  # WGAN loss
+  def disc_loss_WGAN(self, expert_dist, expert_actions, policy_dist):
+    metrics = {}
     
-    metrics.update(jaxutils.tensorstats(discriminator_loss, 'discriminator_loss'))
-    #metrics.update(jaxutils.tensorstats(expert_d, 'discriminator_expert_class'))
-    #metrics.update(jaxutils.tensorstats(policy_d, 'discriminator_policy_class'))
+    ### discriminator output (real/false)
+    expert_d, expert_logits = self.discriminator(expert_dist)
+    policy_d, policy_logits = self.discriminator(policy_dist)
+    
+    ## self.d_loss_real = tf.reduce_mean(self.D_logits)
+    ## self.d_loss_fake = tf.reduce_mean(self.D_logits_)
+    expert_loss = jnp.mean(expert_logits)
+    policy_loss = jnp.mean(policy_logits)
+    
+    # GRADIENT PENALTY
+    policy_stoch = jnp.reshape(policy_dist["stoch"], (policy_dist["stoch"].shape[0], 1024, 1024))
+    imag_feat = jnp.concatenate([policy_stoch, policy_dist["deter"]], -1)
+    pol_dist = jnp.concatenate([imag_feat, policy_dist['action']], -1)
+
+    arr = jnp.array(tensorflow.random.uniform(pol_dist.shape[:2]))
+    alpha_1 = jnp.expand_dims(arr, -1)
+    alpha_2 = jnp.expand_dims(alpha_1, -1)
+    
+    ### tile the 2nd expert dimension x batch_size
+    expert_stoch = jnp.tile(expert_dist["stoch"], [1, self.config.batch_size, 1, 1])
+    expert_deter = jnp.tile(expert_dist["deter"], [1, self.config.batch_size, 1])
+    expert_act = jnp.tile(expert_actions, [1, self.config.batch_size, 1])
+
+    stoch = alpha_2 * policy_dist["stoch"] + (1.0 - alpha_2) * expert_stoch
+    deter = alpha_1 * policy_dist["deter"] + (1.0 - alpha_1) * expert_deter
+    actions = alpha_1 * policy_dist["action"] + (1.0 - alpha_1) * expert_act
+    
+    disc_penalty_input = {'stoch': stoch, 'deter': deter, 'action': actions}
+    
+    _, logits = self.discriminator(disc_penalty_input)
+    
+    disc_layers = self.discriminator.get_layers()
+    variables = []
+    for key in disc_layers.keys():
+      variables.extend(disc_layers[key].get('kernel'))
+    
+    discriminator_variables = jnp.ravel(jnp.array(variables))
+    inner_discriminator_grads = jnp.gradient(jnp.mean(logits), discriminator_variables)
+    inner_discriminator_norm = jnp.linalg.norm(jnp.array(inner_discriminator_grads))
+    grad_penalty = (inner_discriminator_norm - 1)**2
+          
+    ## discriminator_loss = fake - real + lambda*penalty
+    discriminator_loss = policy_loss - expert_loss + 10.0 * grad_penalty
 
     return discriminator_loss.mean(), metrics
 
@@ -425,7 +488,7 @@ class VFunction(nj.Module):
   def train(self, traj, actor):
     target = sg(self.score(traj)[1])
     mets, metrics = self.opt(self.net, self.loss, traj, target, has_aux=True)
-    metrics.update(mets)
+    #metrics.update(mets)
     self.updater()
     return metrics
 
