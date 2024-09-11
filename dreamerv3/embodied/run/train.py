@@ -3,7 +3,7 @@ import re
 import embodied
 import numpy as np
 import jax.numpy as jnp
-from train import read_trajectories, read_16_best, read_one_best
+from train import read_16_best
 
 def train(agent, env, replay, ex_data, logger, args):
 
@@ -75,7 +75,6 @@ def train(agent, env, replay, ex_data, logger, args):
     for _ in range(should_train(step)):
       with timer.scope('dataset'):
         batch1[0] = next(model_dataset)
-      print(len(batch1[0]['is_first']))
       outs, state[0], mets = agent.train(batch1[0], ex_data, state[0])
       metrics.add(mets, prefix='train')
       if 'priority' in outs:
@@ -102,6 +101,9 @@ def train(agent, env, replay, ex_data, logger, args):
   if args.from_checkpoint:
     checkpoint.load(args.from_checkpoint)
   checkpoint.load_or_save()
+  # RE-INIT ALL BUT WM ENC/DEC
+  #agent.re_init()
+  #checkpoint.agent = agent
   should_save(step)  # Register that we jused saved.
 
   print('Start training loop.')
@@ -112,6 +114,5 @@ def train(agent, env, replay, ex_data, logger, args):
     if should_save(step):
       checkpoint.save()
     if should_change(step):
-      #ex_data = read_trajectories("dreamerv3/dataset",16)
-      ex_data = read_16_best("dreamerv3/snake-circle")
+      ex_data = read_16_best(agent.config.demos, agent.config.task)
   logger.write()
