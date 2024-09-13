@@ -114,5 +114,5 @@ def train(agent, env, replay, ex_data, logger, args):
     if should_save(step):
       checkpoint.save()
     if should_change(step):
-      ex_data = read_16_best(agent.config.demos, agent.config.task)
+      ex_data = read_16_best(agent.agent.config.demos, agent.agent.config.task)
   logger.write()
